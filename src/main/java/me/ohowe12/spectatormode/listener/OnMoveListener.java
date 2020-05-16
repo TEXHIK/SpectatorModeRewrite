@@ -13,6 +13,7 @@ import me.ohowe12.spectatormode.State;
 import me.ohowe12.spectatormode.commands.Spectator;
 import org.bukkit.GameMode;
 import org.bukkit.Location;
+import org.bukkit.World;
 import org.bukkit.block.Block;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
@@ -22,6 +23,8 @@ import org.bukkit.event.player.PlayerMoveEvent;
 
 import java.util.Map;
 import java.util.Objects;
+
+import static java.lang.Math.abs;
 
 
 public class OnMoveListener implements Listener {
@@ -51,6 +54,7 @@ public class OnMoveListener implements Listener {
         }
 
         assert location != null;
+        location = new Location(location.getWorld(), location.getX(), location.getY()+1, location.getZ());
         if (enforceY) {
             if (location.getY() <= yLevel) {
                 e.setTo(e.getFrom());
@@ -59,19 +63,12 @@ public class OnMoveListener implements Listener {
             }
         }
         Block currentBlock = location.getBlock();
-        if (enforceAllBlocks) {
-            if (!(currentBlock.getType().isAir())) {
-                e.setTo(e.getFrom());
-                e.setCancelled(true);
-                return;
-            }
+        if (cannotPass(currentBlock, enforceNonTransparent, enforceAllBlocks) || !circleCheck(location, enforceNonTransparent, enforceAllBlocks)) {
+            e.setTo(e.getFrom());
+            e.setCancelled(true);
+            return;
         }
-        if (enforceNonTransparent) {
-            if (checkBlock(currentBlock)) {
-                e.setTo(e.getFrom());
-                e.setCancelled(true);
-            }
-        }
+
         if (enforceDistance) {
             if (checkDistance(player.getUniqueId().toString(), location)) {
                 e.setTo(e.getFrom());
@@ -85,14 +82,57 @@ public class OnMoveListener implements Listener {
         }
     }
 
+    private boolean cannotPass(Block currentBlock, boolean enforceNonTransparent, boolean enforceAllBlocks) {
+        return enforceAllBlocks && !currentBlock.getType().isAir()
+                || enforceNonTransparent && currentBlock.getType().isOccluding();
+    }
+
     private boolean checkDistance(String player, Location location) {
         int distance = plugin.getConfig().getInt("distance", 64);
         Location originalLocation = state.get(player).getPlayerLocation();
         return (originalLocation.distance(location)) > distance;
     }
 
-    private boolean checkBlock(Block currentBlock) {
-        return (currentBlock.getType().isOccluding());
-    }
 
+    private boolean circleCheck(Location location, boolean enforceNonTransparent, boolean enforceAllBlocks) {
+        //vanilla space avaliable in 1-block shaft: (*.3,*.3)..(*.7,*.7)
+        double x = location.getX();
+        double y = location.getY();
+        double z = location.getZ();
+        int xSign = x >= 0 ? 1 : -1;
+        int zSign = z >= 0 ? 1 : -1;
+        x = abs(x);
+        z = abs(z);
+        double xFrac = x - (int) x;
+        double yFrac = y - (int) y;
+        double zFrac = z - (int) z;
+        World world = location.getWorld();
+
+        if (yFrac > 0.2) {//still passing. Whithout this if - completely broken
+            if (cannotPass(new Location(world, x * xSign, y + 1, z * zSign).getBlock(), enforceNonTransparent, enforceAllBlocks)) {
+                return false;
+            }
+        }
+        if (xFrac < 0.3) {
+            if (cannotPass(new Location(world, (x - 1) * xSign, y, z * zSign).getBlock(), enforceNonTransparent, enforceAllBlocks)) {
+                return false;
+            }
+        } else if (xFrac > 0.7) {
+            if (cannotPass(new Location(world, (x + 1) * xSign, y, z * zSign).getBlock(), enforceNonTransparent, enforceAllBlocks)) {
+                return false;
+            }
+        }
+
+        if (zFrac < 0.3) {
+            if (cannotPass(new Location(world, x * xSign, y, (z - 1) * zSign).getBlock(), enforceNonTransparent, enforceAllBlocks)) {
+                return false;
+            }
+        } else if (zFrac > 0.7) {
+            if (cannotPass(new Location(world, x * xSign, y, (z + 1) * zSign).getBlock(), enforceNonTransparent, enforceAllBlocks)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
 }
